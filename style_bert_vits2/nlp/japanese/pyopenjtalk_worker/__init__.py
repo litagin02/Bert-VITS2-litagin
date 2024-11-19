@@ -90,13 +90,9 @@ def initialize_worker(port: int = WORKER_PORT) -> None:
         client = WorkerClient(port)
     except (OSError, socket.timeout):
         logger.debug("try starting pyopenjtalk worker server")
-        import os
         import subprocess
 
-        worker_pkg_path = os.path.relpath(
-            os.path.dirname(__file__), os.getcwd()
-        ).replace(os.sep, ".")
-        args = [sys.executable, "-m", worker_pkg_path, "--port", str(port)]
+        args = [sys.executable, "-m", __name__, "--port", str(port)]
         # new session, new process group
         if sys.platform.startswith("win"):
             cf = subprocess.CREATE_NEW_CONSOLE | subprocess.CREATE_NEW_PROCESS_GROUP  # type: ignore
