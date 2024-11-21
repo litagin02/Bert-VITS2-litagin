@@ -71,6 +71,16 @@ def unset_user_dict() -> None:
         pyopenjtalk.unset_user_dict()
 
 
+def fugashi_user_dict(Path1: str, path2: str) -> None:
+    if WORKER_CLIENT is not None:
+        WORKER_CLIENT.dispatch_pyopenjtalk("fugashi_user_dict", Path1, path2)
+    else:
+        # without worker
+        from style_bert_vits2.nlp.japanese.pyopenjtalk_worker.fugashi_wrapper import fugashi_user_dict
+
+        fugashi_user_dict(Path1, path2)
+
+
 # initialize module when imported
 
 
@@ -93,9 +103,7 @@ def initialize_worker(port: int = WORKER_PORT) -> None:
         import os
         import subprocess
 
-        worker_pkg_path = os.path.relpath(
-            os.path.dirname(__file__), os.getcwd()
-        ).replace(os.sep, ".")
+        worker_pkg_path = os.path.relpath(os.path.dirname(__file__), os.getcwd()).replace(os.sep, ".")
         args = [sys.executable, "-m", worker_pkg_path, "--port", str(port)]
         # new session, new process group
         if sys.platform.startswith("win"):

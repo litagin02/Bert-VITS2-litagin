@@ -31,13 +31,10 @@ from style_bert_vits2.nlp.japanese.user_dict.word_model import UserDictWord, Wor
 # if not save_dir.is_dir():
 #     save_dir.mkdir(parents=True)
 
-default_dict_path = (
-    DEFAULT_USER_DICT_DIR / "default.csv"
-)  # VOICEVOXデフォルト辞書ファイルのパス
+default_dict_path = DEFAULT_USER_DICT_DIR / "default.csv"  # VOICEVOXデフォルト辞書ファイルのパス
 user_dict_path = DEFAULT_USER_DICT_DIR / "user_dict.json"  # ユーザー辞書ファイルのパス
-compiled_dict_path = (
-    DEFAULT_USER_DICT_DIR / "user.dic"
-)  # コンパイル済み辞書ファイルのパス
+compiled_dict_path = DEFAULT_USER_DICT_DIR / "user.dic"  # コンパイル済み辞書ファイルのパス
+fugashi_compiled_dict_path = DEFAULT_USER_DICT_DIR / "user_fugashi.dic"
 
 
 # # 同時書き込みの制御
@@ -59,9 +56,7 @@ def _write_to_json(user_dict: Dict[str, UserDictWord], user_dict_path: Path) -> 
     converted_user_dict = {}
     for word_uuid, word in user_dict.items():
         word_dict = word.model_dump()
-        word_dict["cost"] = _priority2cost(
-            word_dict["context_id"], word_dict["priority"]
-        )
+        word_dict["cost"] = _priority2cost(word_dict["context_id"], word_dict["priority"])
         del word_dict["priority"]
         converted_user_dict[word_uuid] = word_dict
     # 予めjsonに変換できることを確かめる
@@ -76,7 +71,8 @@ def update_dict(
     default_dict_path: Path = default_dict_path,
     user_dict_path: Path = user_dict_path,
     compiled_dict_path: Path = compiled_dict_path,
-) -> None:
+    fugashi_compiled_dict_path: Path = fugashi_compiled_dict_path,
+):
     """
     辞書の更新
     Parameters
@@ -86,6 +82,8 @@ def update_dict(
     user_dict_path : Path
         ユーザー辞書ファイルのパス
     compiled_dict_path : Path
+        コンパイル済み辞書ファイルのパス
+    fugashi_compiled_dict_path : Path
         コンパイル済み辞書ファイルのパス
     """
 
@@ -153,6 +151,38 @@ def update_dict(
             # pyopenjtalk.set_user_dict(str(compiled_dict_path.resolve(strict=True)))
             pyopenjtalk.update_global_jtalk_with_user_dict(str(compiled_dict_path))
 
+        # default csvの形式変換
+        fugashi_default_dict_list: list[str] = csv_text.split("\n")
+        old_fugashi_user_dict_list: list[list[str]] = []
+
+        # 終端を削除
+        fugashi_default_dict_list.remove("")
+
+        for i in range(len(fugashi_default_dict_list)):
+            old_fugashi_user_dict_list.append(str(fugashi_default_dict_list[i]).split(","))
+
+        new_fugashi_user_dict_list: list[str] = []
+        for word in old_fugashi_user_dict_list:
+            converted_word_list: list[str] = (
+                [word[0]]
+                + ["0", "0", "1"]
+                + word[4:10]
+                + ["*"]
+                + word[10:13]
+                + ["*", "*", "*", "*", "*", "*", "*", "*", "*", "*", "*", "*", "*", "*"]
+                + [word[13][0]]
+                + ["*", "*", "*", "*"]
+            )  # [ str(word[13])[0] ] + ["*","*","*","*"]
+            converted_word = ",".join(converted_word_list)
+            new_fugashi_user_dict_list.append(converted_word)
+
+        fugashi_csv_text = "\n".join(new_fugashi_user_dict_list)
+
+        # 辞書データを辞書.csv へ一時保存
+        tmp_csv_path.write_text(fugashi_csv_text, encoding="utf-8")
+
+        pyopenjtalk.fugashi_user_dict(str(fugashi_compiled_dict_path), str(tmp_csv_path))
+
     except Exception as e:
         print("Error: Failed to update dictionary.", file=sys.stderr)
         traceback.print_exc(file=sys.stderr)
@@ -165,6 +195,7 @@ def update_dict(
         if tmp_compiled_path.exists():
             tmp_compiled_path.unlink()
 
+    return
 
 # @mutex_wrapper(mutex_user_dict)
 def read_dict(user_dict_path: Path = user_dict_path) -> Dict[str, UserDictWord]:
@@ -190,9 +221,7 @@ def read_dict(user_dict_path: Path = user_dict_path) -> Dict[str, UserDictWord]:
             # 0.12以前の辞書は、context_idがハードコーディングされていたためにユーザー辞書内に保管されていない
             # ハードコーディングされていたcontext_idは固有名詞を意味するものなので、固有名詞のcontext_idを補完する
             if word.get("context_id") is None:
-                word["context_id"] = part_of_speech_data[
-                    WordTypes.PROPER_NOUN
-                ].context_id
+                word["context_id"] = part_of_speech_data[WordTypes.PROPER_NOUN].context_id
             word["priority"] = _cost2priority(word["context_id"], word["cost"])
             del word["cost"]
             result[str(UUID(word_uuid))] = UserDictWord(**word)
@@ -346,9 +375,7 @@ def rewrite_word(
     # 既存単語の上書きによる辞書データの更新
     user_dict = read_dict(user_dict_path=user_dict_path)
     if word_uuid not in user_dict:
-        raise HTTPException(
-            status_code=422, detail="UUIDに該当するワードが見つかりませんでした"
-        )
+        raise HTTPException(status_code=422, detail="UUIDに該当するワードが見つかりませんでした")
     user_dict[word_uuid] = word
 
     # 更新された辞書データの保存と適用
@@ -375,9 +402,7 @@ def delete_word(
     # 既存単語の削除による辞書データの更新
     user_dict = read_dict(user_dict_path=user_dict_path)
     if word_uuid not in user_dict:
-        raise HTTPException(
-            status_code=422, detail="IDに該当するワードが見つかりませんでした"
-        )
+        raise HTTPException(status_code=422, detail="IDに該当するワードが見つかりませんでした")
     del user_dict[word_uuid]
 
     # 更新された辞書データの保存と適用
@@ -414,18 +439,10 @@ def import_user_dict(
         for pos_detail in part_of_speech_data.values():
             if word.context_id == pos_detail.context_id:
                 assert word.part_of_speech == pos_detail.part_of_speech
-                assert (
-                    word.part_of_speech_detail_1 == pos_detail.part_of_speech_detail_1
-                )
-                assert (
-                    word.part_of_speech_detail_2 == pos_detail.part_of_speech_detail_2
-                )
-                assert (
-                    word.part_of_speech_detail_3 == pos_detail.part_of_speech_detail_3
-                )
-                assert (
-                    word.accent_associative_rule in pos_detail.accent_associative_rules
-                )
+                assert word.part_of_speech_detail_1 == pos_detail.part_of_speech_detail_1
+                assert word.part_of_speech_detail_2 == pos_detail.part_of_speech_detail_2
+                assert word.part_of_speech_detail_3 == pos_detail.part_of_speech_detail_3
+                assert word.accent_associative_rule in pos_detail.accent_associative_rules
                 break
         else:
             raise ValueError("対応していない品詞です")

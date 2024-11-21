@@ -45,3 +45,9 @@ safetensors.ipynb
 
 playground.ipynb
 playgrounds/
+
+# mecab dict file
+left_id.def
+right_id.def
+dicrc
+rewrite.def

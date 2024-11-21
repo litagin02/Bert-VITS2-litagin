@@ -6,6 +6,7 @@ from typing import Any, cast
 import pyopenjtalk
 
 from style_bert_vits2.logging import logger
+from style_bert_vits2.nlp.japanese.pyopenjtalk_worker.fugashi_wrapper import fugashi_user_dict
 from style_bert_vits2.nlp.japanese.pyopenjtalk_worker.worker_common import (
     ConnectionClosedException,
     RequestType,
@@ -22,6 +23,7 @@ PYOPENJTALK_FUNC_DICT = {
     "mecab_dict_index": pyopenjtalk.mecab_dict_index,
     "update_global_jtalk_with_user_dict": pyopenjtalk.update_global_jtalk_with_user_dict,
     "unset_user_dict": pyopenjtalk.unset_user_dict,
+    "fugashi_user_dict": fugashi_user_dict,
 }
 
 
@@ -115,9 +117,7 @@ class WorkerServer:
                             send_data(sock, response)
                             logger.trace("server sent response successfully")
                         except Exception:
-                            logger.warning(
-                                "an exception occurred during sending responce"
-                            )
+                            logger.warning("an exception occurred during sending responce")
                         if self.quit:
                             logger.info("quit pyopenjtalk worker server")
                             return
