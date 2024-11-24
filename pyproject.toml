@@ -37,6 +37,7 @@ dependencies = [
     "safetensors",
     "torch>=2.1",
     "transformers",
+    "aivmlib",
 ]
 
 [project.urls]

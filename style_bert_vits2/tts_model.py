@@ -1,11 +1,13 @@
+import base64
+import io
 from pathlib import Path
 from typing import Any, Optional, Union
 
+import aivmlib
 import numpy as np
 import torch
 from numpy.typing import NDArray
 from pydantic import BaseModel
-
 from style_bert_vits2.constants import (
     DEFAULT_ASSIST_TEXT_WEIGHT,
     DEFAULT_LENGTH,
@@ -26,7 +28,6 @@ from style_bert_vits2.models.models_jp_extra import (
     SynthesizerTrn as SynthesizerTrnJPExtra,
 )
 from style_bert_vits2.voice import adjust_voice
-
 
 # Gradio の import は重いため、ここでは型チェック時のみ import する
 # ライブラリとしての利用を考慮し、TTSModelHolder の _for_gradio() 系メソッド以外では Gradio に依存しないようにする
@@ -53,7 +54,7 @@ class TTSModel:
         この時点ではモデルはロードされていない (明示的にロードしたい場合は model.load() を呼び出す)。
 
         Args:
-            model_path (Path): モデル (.safetensors) のパス
+            model_path (Path): モデル (.safetensors / .aivm) のパス
             config_path (Union[Path, HyperParameters]): ハイパーパラメータ (config.json) のパス (直接 HyperParameters を指定することも可能)
             style_vec_path (Union[Path, NDArray[Any]]): スタイルベクトル (style_vectors.npy) のパス (直接 NDArray を指定することも可能)
             device (str): 音声合成時に利用するデバイス (cpu, cuda, mps など)
@@ -61,6 +62,9 @@ class TTSModel:
 
         self.model_path: Path = model_path
         self.device: str = device
+
+        if self.model_path.suffix == ".aivm":
+            config_path, style_vec_path = get_config_from_aivm(self.model_path)
 
         # ハイパーパラメータの Pydantic モデルが直接指定された
         if isinstance(config_path, HyperParameters):
@@ -349,7 +353,7 @@ class TTSModelHolder:
     def __init__(self, model_root_dir: Path, device: str) -> None:
         """
         Style-Bert-Vits2 の音声合成モデルを管理するクラスを初期化する。
-        音声合成モデルは下記のように配置されていることを前提とする (.safetensors のファイル名は自由) 。
+        音声合成モデルは下記のように配置されていることを前提とする (.safetensors / .aivm のファイル名は自由) 。
         ```
         model_root_dir
         ├── model-name-1
@@ -391,20 +395,24 @@ class TTSModelHolder:
             model_files = [
                 f
                 for f in model_dir.iterdir()
-                if f.suffix in [".pth", ".pt", ".safetensors"]
+                if f.suffix in [".pth", ".pt", ".safetensors", ".aivm"]
             ]
             if len(model_files) == 0:
                 logger.warning(f"No model files found in {model_dir}, so skip it")
                 continue
+            is_aivm_model = model_files[0].suffix == ".aivm"
             config_path = model_dir / "config.json"
-            if not config_path.exists():
+            if not config_path.exists() and not is_aivm_model:
                 logger.warning(
                     f"Config file {config_path} not found, so skip {model_dir}"
                 )
                 continue
             self.model_files_dict[model_dir.name] = model_files
             self.model_names.append(model_dir.name)
-            hyper_parameters = HyperParameters.load_from_json(config_path)
+            if is_aivm_model:
+                hyper_parameters, _ = get_config_from_aivm(model_files[0])
+            else:
+                hyper_parameters = HyperParameters.load_from_json(config_path)
             style2id: dict[str, int] = hyper_parameters.data.style2id
             styles = list(style2id.keys())
             spk2id: dict[str, int] = hyper_parameters.data.spk2id
@@ -501,3 +509,27 @@ class TTSModelHolder:
             gr.Dropdown(choices=initial_model_files, value=initial_model_files[0]),  # type: ignore
             gr.Button(interactive=False),  # For tts_button
         )
+
+
+def get_config_from_aivm(model_path: Path) -> tuple[HyperParameters, NDArray[Any]]:
+    """
+    aivm ファイルからハイパーパラメータとスタイルベクトルを取得する。
+
+    Args:
+        model_name (str): 音声合成モデルのパス
+
+    Returns:
+        tuple[HyperParameters, NDArray[Any]]: ハイパーパラメータとスタイルベクトル
+            - HyperParameters: ハイパーパラメータ
+            - NDArray[Any]: スタイルベクトル
+    """
+    with open(model_path, "rb") as aivm_file:
+        raw_metadata = aivmlib.read_aivm_metadata(aivm_file)
+
+    buffer = io.BytesIO(raw_metadata.style_vectors)
+    vectors_nd = np.load(buffer)
+
+    return (
+        HyperParameters(**raw_metadata.hyper_parameters.model_dump()),
+        vectors_nd,
+    )
