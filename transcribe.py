@@ -75,7 +75,7 @@ def transcribe_files_with_hf_whisper(
         chunk_length_s=30,
         batch_size=batch_size,
         torch_dtype=torch.float16,
-        device="cuda",
+        device=device,
         trust_remote_code=True,
         # generate_kwargs=generate_kwargs,
     )
